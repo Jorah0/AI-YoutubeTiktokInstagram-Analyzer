@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.verify/
+.env
+data/
+.mypy_cache/
+*.db
+.env.*
+!.env.example
+build/
+dist/
+*.spec
+.kept_user_files/
+.playwright-mcp/
+raw/

@@ -1,0 +1,25 @@
+# Local, single-user tool with no login: serve it to this computer only.
+[server]
+address = "127.0.0.1"
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
+
+# Day and night looks. With both defined (and no fixed base) the page menu at the top right offers
+# Light, Dark and "use system setting". Keep these values the same as LOOKS in launcher.py, which is
+# how the packaged program gets them.
+[theme.light]
+primaryColor = "#0b6e63"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#eef4f2"
+textColor = "#18262d"
+
+[theme.dark]
+primaryColor = "#3fb8a6"
+backgroundColor = "#111a19"
+secondaryBackgroundColor = "#1c2b29"
+textColor = "#e6efed"
