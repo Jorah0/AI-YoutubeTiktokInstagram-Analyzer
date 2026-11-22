@@ -6,10 +6,14 @@ command instead, so a scheduled task can call `CreatorResearch.exe weekly 1 -o d
 Beside the program it keeps `data\\creator_intel.db` (your work) and reads an optional `.env` file
 (your keys). Closing the console window stops the dashboard.
 """
+import hmac
+import math
 import os
 import re
 import socket
 import sys
+import threading
+import time
 from pathlib import Path
 
 
@@ -30,7 +34,7 @@ def bundled() -> Path:
 # file did not bring. None = stands alone. A new setting must be added here or the exe will ignore it.
 ENV_NAMES = {
     "BRAVE_API_KEY": None, "YOUTUBE_API_KEY": None, "ANTHROPIC_API_KEY": None, "APIFY_TOKEN": None,
-    "CI_DB": None, "CI_NO_BROWSER": None, "CI_WEBHOOK_URL": None, "CI_MODEL": None,
+    "CI_DB": None, "CI_NO_BROWSER": None, "CI_WEBHOOK_URL": None, "CI_MODEL": None, "CI_PASSWORD": None,
     "CI_BRAVE_USD_PER_REQUEST": "BRAVE_API_KEY",
     "CI_YOUTUBE_RIGHTS": "YOUTUBE_API_KEY",  # can only widen (the default is store only), so it needs its key
     "CI_BROKER_RIGHTS": None,  # can only narrow (the default is everything), so it must never be dropped
@@ -176,6 +180,31 @@ def save_env(path: Path, changes: dict) -> list[str]:
         else:
             os.environ.pop(key, None)
     return dropped
+
+
+# Wrong tries at the dashboard password, counted for the whole program and not per browser tab, so opening
+# more tabs does not buy more guesses. ponytail: kept in memory, so restarting the program clears the wait;
+# whoever can restart it can also read .env.
+_tries = {"fails": 0, "until": 0.0}
+_tries_lock = threading.Lock()  # each browser's try runs on its own thread
+
+
+def unlock(typed: str, now: float | None = None) -> str | None:
+    """None when `typed` is the dashboard password (CI_PASSWORD) or none is set; otherwise what to tell the
+    person. Each wrong try doubles the wait before the next one is looked at, up to five minutes."""
+    password = os.environ.get("CI_PASSWORD", "")
+    if not password:
+        return None
+    with _tries_lock:
+        now = time.monotonic() if now is None else now
+        if now < _tries["until"]:
+            return f"Too many wrong tries. Wait {math.ceil(_tries['until'] - now)} seconds, then type it again."
+        if hmac.compare_digest(typed.strip().encode(), password.encode()):
+            _tries["fails"] = 0
+            return None
+        _tries["fails"] += 1
+        _tries["until"] = now + min(2 ** min(_tries["fails"], 9), 300)
+        return "Wrong password."
 
 
 def prepare() -> None:

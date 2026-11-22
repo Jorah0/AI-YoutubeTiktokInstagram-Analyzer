@@ -25,6 +25,41 @@ st.set_page_config(
     # Giving the page menu an entry makes it appear, and with it the Light / Dark theme chooser.
     menu_items={"About": "Creator research: find comparable creators, see the evidence, test one idea. "
                          "Runs on this computer only."})
+
+
+def _try_unlock():
+    """Runs once per value typed, before the page is drawn again, so the box can be emptied."""
+    refused = launcher.unlock(st.session_state["unlock"])
+    st.session_state["unlock"] = ""
+    st.session_state["unlock_msg"] = refused
+    if refused is None:
+        st.session_state["unlocked"] = os.environ.get("CI_PASSWORD")
+
+
+# With a password set, nothing below this is run for a browser that has not typed it. What a browser typed
+# is remembered against the password itself, so changing the password asks everyone again.
+def _locked() -> bool:
+    password = os.environ.get("CI_PASSWORD")
+    return bool(password) and st.session_state.get("unlocked") != password
+
+
+def unlocked_only(action):
+    """Wrap every on_click / on_change action in this. Streamlit runs a widget's action before the page,
+    so before the gate below: a tab opened under an old password would otherwise get one more action."""
+    def guarded(*args, **kwargs):
+        if not _locked():
+            return action(*args, **kwargs)
+    return guarded
+
+
+if _locked():
+    st.title("Creator research")
+    st.text_input("Password", type="password", key="unlock", on_change=_try_unlock)
+    if st.session_state.get("unlock_msg"):
+        st.error(st.session_state["unlock_msg"])
+    st.caption("Forgotten? Delete the CI_PASSWORD line from the .env file beside the program and start it again.")
+    st.stop()
+
 db = store.open_db()
 
 # Only the screen chosen in the sidebar is drawn, and Streamlit forgets the value of any input it did not
@@ -298,6 +333,7 @@ SETTINGS = [
     ("CI_AI_MODEL", "The model to use on that server, e.g. llama3.1", False),
     ("CI_AI_KEY", "That server's key, if it wants one", True),
     ("CI_WEBHOOK_URL", "Discord or Slack webhook for the weekly alert", True),
+    ("CI_PASSWORD", "Password to open this dashboard (you are asked for it straight after saving)", True),
 ]
 
 
@@ -336,12 +372,16 @@ def settings_form():
                 placeholder=(f"now: {current}" if current else "set: leave empty to keep it" if is_set else "not set"))
         st.multiselect("Remove these settings", [name for name, _, _ in SETTINGS if os.environ.get(name)],
                        key="settings_remove")
-        st.form_submit_button("Save settings", key="settings_save", on_click=save)
+        st.form_submit_button("Save settings", key="settings_save", on_click=unlocked_only(save))
     if state.get("settings_msg"):
         kind, text = state.pop("settings_msg")
         (st.success if kind == "success" else st.warning)(text)
-    st.caption("This dashboard has no login: anyone who can use this computer while it runs can change these. A "
-               "value also set in Windows itself wins again at the next start. "
+    st.caption(("This dashboard asks for its password. The password sits in the .env file as plain text, like the "
+                "keys: it keeps out other people using this computer, not someone who can read that file. "
+                if os.environ.get("CI_PASSWORD") else
+                "This dashboard has no login: anyone who can use this computer while it runs can change these. "
+                "Set a password above to change that. ") +
+               "A value also set in Windows itself wins again at the next start. "
                "A server that is not this computer must also be confirmed once on the Assistant screen. What each "
                "source may be used for (CI_YOUTUBE_RIGHTS, CI_BROKER_RIGHTS) is set in the .env file and read at start.")
 
@@ -503,7 +543,7 @@ def script_tab(brief: Brief):
     left, right = st.columns([3, 2], gap="large")
     with left:
         st.subheader("Your draft")
-        st.selectbox("Draft", [None, *saved], key="script_pick", on_change=load,
+        st.selectbox("Draft", [None, *saved], key="script_pick", on_change=unlocked_only(load),
                      format_func=lambda i: "New draft" if i is None else saved[i]["title"])
         st.text_input("Title", key="script_title")
         st.text_input("What is this video about? (used for the outline and the AI draft)", key="script_idea")
@@ -514,11 +554,11 @@ def script_tab(brief: Brief):
         st.text_area("Script", key="script_body", height=360, max_chars=scripts.MAX_DRAFT_CHARS,
                      placeholder="Write or paste the words you will say. Or start from an outline.")
         buttons = st.columns(5)
-        buttons[0].button("Outline", on_click=start_outline, width="stretch", help="Fill an empty draft with a skeleton shaped by the accepted creators")
+        buttons[0].button("Outline", on_click=unlocked_only(start_outline), width="stretch", help="Fill an empty draft with a skeleton shaped by the accepted creators")
         buttons[1].button("Analyze draft", type="primary", width="stretch")  # the analysis below is always current
         save_now = buttons[2].button("Save draft", width="stretch")
-        buttons[3].button("AI feedback", on_click=run_feedback, width="stretch")
-        buttons[4].button("Draft with AI", on_click=run_draft, width="stretch")
+        buttons[3].button("AI feedback", on_click=unlocked_only(run_feedback), width="stretch")
+        buttons[4].button("Draft with AI", on_click=unlocked_only(run_draft), width="stretch")
         st.caption("The two AI buttons send your draft, your brief and reviewers' notes on the compared creators to "
                    f"the AI model ({ai_name()}). Everything else on this screen stays on this computer.")
         if save_now:

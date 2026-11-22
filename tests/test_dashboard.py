@@ -334,7 +334,7 @@ def test_narrowing_what_scraped_data_may_be_used_for_never_depends_on_a_token(tm
 # --- keys entered in the tool itself --------------------------------------------------------------------------
 
 SETTABLE = ("BRAVE_API_KEY", "YOUTUBE_API_KEY", "ANTHROPIC_API_KEY", "APIFY_TOKEN", "CI_AI_URL", "CI_AI_MODEL",
-            "CI_AI_KEY", "CI_WEBHOOK_URL")
+            "CI_AI_KEY", "CI_WEBHOOK_URL", "CI_PASSWORD")
 
 
 def clean_env(monkeypatch):
@@ -455,3 +455,99 @@ def test_a_hand_edited_file_does_not_block_saving_something_unrelated(tmp_path, 
     with pytest.raises(ValueError) as refused:  # but this save would itself strand the price setting
         launcher.save_env(env, {"BRAVE_API_KEY": ""})
     assert "CI_BRAVE_USD_PER_REQUEST" in str(refused.value) and ".env" in str(refused.value)
+
+
+# --- a password on the dashboard ------------------------------------------------------------------------------
+
+def fresh_lock(monkeypatch, password=None):
+    monkeypatch.setenv("CI_PASSWORD", "x")
+    monkeypatch.delenv("CI_PASSWORD")
+    if password:
+        monkeypatch.setenv("CI_PASSWORD", password)
+    monkeypatch.setattr(launcher, "_tries", {"fails": 0, "until": 0.0})
+
+
+def test_wrong_passwords_are_refused_and_guessing_is_slowed_for_everyone(monkeypatch):
+    fresh_lock(monkeypatch, "open sesame")
+    assert launcher.unlock("open sesame", now=0) is None and launcher.unlock(" open sesame ", now=0) is None
+    assert launcher.unlock("guess", now=0) == "Wrong password."
+    assert "Wait" in launcher.unlock("open sesame", now=1)  # even the right one, from any browser, until the wait ends
+    assert launcher.unlock("open sesame", now=2) is None
+    waits = []
+    for _ in range(12):  # each wrong try doubles the wait, up to five minutes
+        start = launcher._tries["until"]
+        launcher.unlock("guess", now=start)
+        waits.append(launcher._tries["until"] - start)
+    assert waits[:3] == [2, 4, 8] and waits[-1] == 300
+    assert launcher.unlock("", now=10 ** 6) == "Wrong password."  # an empty box never opens it
+    fresh_lock(monkeypatch)
+    assert launcher.unlock("anything", now=0) is None  # no password set: nothing to ask
+
+
+def test_with_a_password_set_nothing_is_drawn_until_it_is_typed(tmp_path, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    clean_env(monkeypatch)
+    fresh_lock(monkeypatch, "open sesame")
+    monkeypatch.setenv("CI_DB", str(tmp_path / "app.db"))
+    monkeypatch.setattr(launcher, "home", lambda: tmp_path)
+    conn = store.open_db()
+    demo.seed(conn)
+    conn.close()
+    at = AppTest.from_file(str(Path(__file__).parent.parent / "app.py"), default_timeout=30).run()
+    assert not at.exception, at.exception
+    assert not at.sidebar.radio and not at.sidebar.selectbox and not at.dataframe  # no menu, no brief, no data
+    at.text_input(key="unlock").set_value("guess").run()
+    assert at.error and not at.sidebar.radio and at.text_input(key="unlock").value == ""
+    launcher._tries["until"] = 0.0  # the wait is over
+    at.text_input(key="unlock").set_value("open sesame").run()
+    assert not at.exception and at.sidebar.radio(key="nav").value == "Dashboard"
+    at.sidebar.radio(key="nav").set_value("Data and access").run()
+    shown = " ".join(str(getattr(e, "value", "")) for kind in ("markdown", "caption", "text_input") for e in getattr(at, kind))
+    assert "open sesame" not in shown and "no login" not in shown
+    at.text_input(key="set_CI_PASSWORD").set_value("new words here")  # changing it asks for it again, at once
+    at.button(key="settings_save").click().run()
+    assert "CI_PASSWORD=new words here" in (tmp_path / ".env").read_text(encoding="utf-8")
+    assert not at.sidebar.radio and at.text_input(key="unlock")
+
+
+def test_a_tab_opened_under_the_old_password_cannot_act_once_the_password_has_changed(tmp_path, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    clean_env(monkeypatch)
+    fresh_lock(monkeypatch, "open sesame")
+    monkeypatch.setenv("CI_DB", str(tmp_path / "app.db"))
+    monkeypatch.setattr(launcher, "home", lambda: tmp_path)
+    conn = store.open_db()
+    demo.seed(conn)
+    conn.close()
+    at = AppTest.from_file(str(Path(__file__).parent.parent / "app.py"), default_timeout=30).run()
+    at.text_input(key="unlock").set_value("open sesame").run()
+    at.sidebar.radio(key="nav").set_value("Data and access").run()
+    monkeypatch.setenv("CI_PASSWORD", "changed elsewhere")  # the owner changed it in another browser
+    at.text_input(key="set_BRAVE_API_KEY").set_value("planted")
+    at.button(key="settings_save").click().run()  # a button's action runs before the page, so before the gate
+    assert not at.exception, at.exception
+    assert "BRAVE_API_KEY" not in os.environ and not (tmp_path / ".env").exists()
+    assert not at.sidebar.radio and at.text_input(key="unlock")
+    source = (Path(__file__).parent.parent / "app.py").read_text(encoding="utf-8")
+    import re
+    actions = re.findall(r"on_(?:click|change)=(\w+)", source)  # every action is wrapped, the password box aside
+    assert len(actions) >= 6 and set(actions) == {"_try_unlock", "unlocked_only"}, actions
+
+
+def test_wrong_tries_from_many_browsers_at_once_are_counted_one_at_a_time():
+    import threading
+    assert isinstance(launcher._tries_lock, type(threading.Lock()))
+
+
+def test_without_a_password_the_dashboard_opens_as_before_and_says_it_has_no_login(tmp_path, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    clean_env(monkeypatch)
+    fresh_lock(monkeypatch)
+    monkeypatch.setenv("CI_DB", str(tmp_path / "app.db"))
+    monkeypatch.setattr(launcher, "home", lambda: tmp_path)
+    conn = store.open_db()
+    demo.seed(conn)
+    conn.close()
+    at = AppTest.from_file(str(Path(__file__).parent.parent / "app.py"), default_timeout=30).run()
+    at.sidebar.radio(key="nav").set_value("Data and access").run()
+    assert not at.exception and any("no login" in c.value for c in at.caption)

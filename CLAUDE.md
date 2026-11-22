@@ -51,6 +51,9 @@
 - Every AI call goes through `labeling.ask()`. Script builder (`scripts.py`): only labels and
   `reviewer_note` evidence with the `ai` right may reach the model; every string it returns passes `copies()` and
   `_clip()` before it is shown or stored.
+- Login: with `CI_PASSWORD` set, the gate at the top of `app.py` stops the script before anything is drawn; code
+  that shows data must stay below it, and every `on_click` / `on_change` action is wrapped in `unlocked_only`
+  (actions run before the gate; a test checks this). Tries go through `launcher.unlock` (shared wait, never per session).
 - Themes: day and night palettes live in `.streamlit/config.toml` and `launcher.LOOKS`; a test keeps them equal.
 - Scripted multi-line edits through a shell heredoc have failed here repeatedly; use the editor tool.
 - Broker (`broker.py`, Apify): the owner asked for it on 2026-11-19, overriding the earlier no-scraper decision. A

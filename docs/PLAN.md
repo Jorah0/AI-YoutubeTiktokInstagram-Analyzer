@@ -172,7 +172,7 @@ works in full: brief, paste links, review posts, rank, experiment.
   Reviewer correction on the shortlist is the backstop.
 - Revoking a source clears its evidence, tags, snapshots, matches and the post title, length and date
   it filled. A creator's channel id and subscriber count remain.
-- The app has no login. It is bound to this computer; do not expose the port.
+- The app has no login unless you set a password (eighth round). It is bound to this computer; do not expose the port.
 - The exe is a folder, not one file, and is not code-signed: Windows SmartScreen may warn the first time
   it runs on another computer. Once used, the folder holds your keys and data; share only a fresh build.
 - The dashboard's "own channel and metrics" step looks at your channel on the brief's platform, so it is
@@ -306,4 +306,20 @@ week 3 with two reviewers, week 4 with your own channel. The "Later" table's tri
   writing `digest.md` beside the exe). It points at `dist\CreatorResearch`: if you move the folder, or want
   another brief, change or re-register the task. Remove it with
   `Unregister-ScheduledTask -TaskName "CreatorResearch weekly"`.
-- Open: the dashboard has no login, so anyone using this computer while it runs can change the settings.
+- (Closed in the eighth round.) The dashboard has no login, so anyone using this computer while it runs can change the settings.
+
+## Added 2026-11-20, eighth round: a password on the dashboard
+
+- **Password** (`CI_PASSWORD`; Data and access screen, or the `.env` file; `launcher.unlock`): when set, the
+  dashboard shows nothing but a password box until it is typed. Each wrong try doubles the wait before the next
+  one is looked at (2 seconds up to 5 minutes), for every browser at once. Changing the password asks every open
+  browser again at its next click (yours straight after saving); a page already on screen stays visible until then. Forgotten: delete the `CI_PASSWORD` line from `.env`
+  and start the program again.
+- What it does not do: the password sits in `.env` as plain text, like the keys, so it keeps out other people
+  using this computer, not someone who can read that file. The commands (`CreatorResearch.exe weekly ...`) do
+  not ask for it. Restarting the program clears the wait. There is still one password, not accounts per person.
+  Someone else on this computer typing wrong passwords can keep you waiting (restart the program to clear it),
+  and while no password is set, anyone who can open the dashboard can set one. Any length is accepted, and
+  changing it does not ask for the old one.
+- Left as it is: revoking one source can remove a title another source supplied. Remembering which source
+  filled each field would close it; over-clearing is the safe side, and the next import fills the title again.
